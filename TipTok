@@ -1,0 +1,383 @@
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
+import 'package:reelsx/app.dart';
+
+void main() async {
+WidgetsFlutterBinding.ensureInitialized();
+await Firebase.initializeApp();
+runApp(const ReelsXApp());
+}import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:reelsx/ui/auth/login_page.dart';
+import 'package:reelsx/ui/home/home_page.dart';
+
+class ReelsXApp extends StatelessWidget {
+const ReelsXApp({Key? key}) : super(key: key);
+
+@override
+Widget build(BuildContext context) {
+return MaterialApp(
+debugShowCheckedModeBanner: false,
+title: 'ReelsX',
+theme: ThemeData.dark().copyWith(
+scaffoldBackgroundColor: Colors.black,
+),
+home: StreamBuilder<User?>(
+stream: FirebaseAuth.instance.authStateChanges(),
+builder: (_, snap) =>
+snap.hasData ? const HomePage() : const LoginPage(),
+),
+);
+}
+}import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+
+class LoginPage extends StatefulWidget {
+const LoginPage({Key? key}) : super(key: key);
+@override
+_LoginPageState createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+bool _isSignUp = false;
+final _email = TextEditingController();
+final _pass = TextEditingController();
+
+Future<void> _submit() async {
+try {
+if (_isSignUp) {
+await FirebaseAuth.instance.createUserWithEmailAndPassword(
+email: _email.text.trim(), password: _pass.text.trim());
+} else {
+await FirebaseAuth.instance.signInWithEmailAndPassword(
+email: _email.text.trim(), password: _pass.text.trim());
+}
+} catch (e) {
+ScaffoldMessenger.of(context)
+.showSnackBar(SnackBar(content: Text(e.toString())));
+}
+}
+
+@override
+Widget build(BuildContext context) {
+return Scaffold(
+body: Padding(
+padding: const EdgeInsets.all(24),
+child: Column(
+mainAxisAlignment: MainAxisAlignment.center,
+children: [
+Text(_isSignUp ? 'إنشاء حساب' : 'تسجيل الدخول',
+style: const TextStyle(fontSize: 28)),
+const SizedBox(height: 20),
+TextField(
+controller: _email,
+decoration: const InputDecoration(hintText: 'البريد'),
+keyboardType: TextInputType.emailAddress),
+const SizedBox(height: 12),
+TextField(
+controller: _pass,
+decoration: const InputDecoration(hintText: 'كلمة السر'),
+obscureText: true),
+const SizedBox(height: 20),
+ElevatedButton(
+onPressed: _submit,
+child: Text(_isSignUp ? 'تسجيل' : 'دخول'),
+style: ElevatedButton.styleFrom(
+minimumSize: const Size.fromHeight(48))),
+TextButton(
+onPressed: () => setState(() => _isSignUp = !_isSignUp),
+child: Text(_isSignUp
+? 'لديك حساب؟ سجل دخول'
+: 'لا تمتلك حساب؟ سجل الآن'))
+],
+),
+),
+);
+}import 'package:flutter/material.dart';
+import 'package:reelsx/ui/feed/feed_screen.dart';
+import 'package:reelsx/ui/upload/upload_screen.dart';
+
+class HomePage extends StatefulWidget {
+const HomePage({Key? key}) : super(key: key);
+@override
+_HomePageState createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+int _idx = 0;
+final _screens = [const FeedScreen(), const UploadScreen(), const Center(child: Text('الملف'))];
+
+@override
+Widget build(BuildContext context) {
+return Scaffold(
+body: _screens[_idx],
+bottomNavigationBar: BottomNavigationBar(
+currentIndex: _idx,
+onTap: (i) => setState(() => _idx = i),
+items: const [
+BottomNavigationBarItem(icon: Icon(Icons.home), label: 'الرئيسية'),
+BottomNavigationBarItem(icon: Icon(Icons.add_box), label: 'رفع'),
+BottomNavigationBarItem(icon: Icon(Icons.person), label: 'أنا'),
+],
+),
+);
+}
+}
+}import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
+
+class VideoCard extends StatefulWidget {
+final String videoUrl;
+final String caption;
+final List likes;
+final String videoId;
+final String uploader;
+final bool isChallenge;
+
+const VideoCard({
+required this.videoUrl,
+required this.caption,
+required this.likes,
+required this.videoId,
+required this.uploader,
+required this.isChallenge,
+Key? key,
+}) : super(key: key);
+
+@override
+_VideoCardState createState() => _VideoCardState();
+}
+
+class _VideoCardState extends State<VideoCard> {
+late VideoPlayerController _controller;
+bool _liked = false;
+
+@override
+void initState() {
+super.initState();
+controller = VideoPlayerController.network(widget.videoUrl)
+..initialize().then(() {
+setState(() {});
+_controller.play();
+_controller.setLooping(true);
+});
+final uid = FirebaseAuth.instance.currentUser!.uid;
+_liked = widget.likes.contains(uid);
+}
+
+@override
+void dispose() {
+_controller.dispose();
+super.dispose();
+}
+
+Future<void> _toggleLike() async {
+final uid = FirebaseAuth.instance.currentUser!.uid;
+final ref = FirebaseFirestore.instance.collection('videos').doc(widget.videoId);
+if (_liked) {
+await ref.update({'likes': FieldValue.arrayRemove([uid])});
+} else {
+await ref.update({'likes': FieldValue.arrayUnion([uid])});
+}
+setState(() => _liked = !_liked);
+}
+
+@override
+Widget build(BuildContext context) {
+return Stack(
+fit: StackFit.expand,
+children: [
+_controller.value.isInitialized
+? FittedBox(
+fit: BoxFit.cover,
+child: SizedBox(
+width: _controller.value.size.width,
+height: _controller.value.size.height,
+child: VideoPlayer(_controller),
+),
+)
+: const Center(child: CircularProgressIndicator()),
+Container(
+decoration: BoxDecoration(
+gradient: LinearGradient(
+colors: [Colors.transparent, Colors.black54],
+begin: Alignment.topCenter,
+end: Alignment.bottomCenter,
+stops: [0.5, 1],
+),
+),
+),
+if (widget.isChallenge)
+Positioned(
+top: 40,
+left: 0,
+right: 0,
+child: Center(
+child: Container(
+padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+decoration: BoxDecoration(
+color: Colors.amber,
+borderRadius: BorderRadius.circular(20)),
+child: Text('🔥 تحدّي الأسبوع',
+style: TextStyle(fontWeight: FontWeight.bold))))),
+Positioned(
+left: 16,
+bottom: 100,
+child: Column(
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+Text('@${widget.uploader}', style: TextStyle(fontWeight: FontWeight.bold)),
+SizedBox(height: 6),
+Container(
+width: MediaQuery.of(context).size.width * 0.7,
+child: Text(widget.caption, maxLines: 2, overflow: TextOverflow.ellipsis),
+),
+],
+),
+),
+Positioned(
+right: 16,
+bottom: 100,
+child: Column(
+children: [
+_sideButton(icon: Icons.favorite, label: '${widget.likes.length}', color: _liked ? Colors.red : Colors.white, onTap: _toggleLike),
+_sideButton(icon: Icons.bookmark, label: 'حفظ', onTap: () {}),
+_sideButton(icon: Icons.share, label: 'مشاركة', onTap: () {}),
+],
+),
+),
+],
+);
+}
+
+Widget _sideButton({required IconData icon, required String label, Color color = Colors.white, required VoidCallback onTap}) {
+return Padding(
+padding: const EdgeInsets.symmetric(vertical: 10),
+child: Column(
+children: [
+IconButton(
+icon: Icon(icon, color: color, size: 32), onPressed: onTap),
+Text(label, style: TextStyle(fontSize: 12)),
+],
+),
+)
+}
+}import 'dart:io';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:path/path.dart' as p;
+import 'package:flutter_ffmpeg/flutter_ffmpeg.dart'; // flutter_ffmpeg: ^0.4.2
+
+class UploadScreen extends StatefulWidget {
+const UploadScreen({Key? key}) : super(key: key);
+@override
+_UploadScreenState createState() => _UploadScreenState();
+}
+
+class _UploadScreenState extends State<UploadScreen> {
+File? _video;
+final _picker = ImagePicker();
+final _caption = TextEditingController();
+bool _isChallenge = false;
+bool _uploading = false;
+
+Future<void> _pick() async {
+final XFile? file = await _picker.pickVideo(source: ImageSource.gallery, maxDuration: const Duration(seconds: 45));
+if (file == null) return;
+setState(() => _video = File(file.path));
+}
+
+Future<void> _upload() async {
+if (_video == null || _caption.text.trim().isEmpty) return;
+setState(() => _uploading = true);
+try {
+final uid = FirebaseAuth.instance.currentUser!.uid;
+final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+final userName = userDoc.data()?['name'] ?? 'anon';
+
+// 1- ضغط/قص الفيديو إلى 45 ثانية  
+  final tempDir = Directory.systemTemp;  
+  final outPath = '${tempDir.path}/out_${DateTime.now().millisecondsSinceEpoch}.mp4';  
+  final FlutterFFmpeg _ffmpeg = FlutterFFmpeg();  
+  await _ffmpeg.execute('-i ${_video!.path} -ss 0 -t 45 -crf 28 -y $outPath');  
+
+  // 2- رفع الملف  
+  final ref = FirebaseStorage.instance.ref('videos/${p.basename(outPath)}');  
+  final task = ref.putFile(File(outPath));  
+  await task;  
+  final url = await ref.getDownloadURL();  
+
+  // 3- حفظ metadata  
+  await FirebaseFirestore.instance.collection('videos').add({  
+    'videoUrl': url,  
+    'caption': _caption.text.trim(),  
+    'uploaderId': uid,  
+    'uploaderName': userName,  
+    'likes': [],  
+    'challenge': _isChallenge,  
+    'createdAt': FieldValue.serverTimestamp(),  
+  });  
+
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم الرفع!')));  
+  Navigator.of(context).pop(); // عد للرئيسية  
+} catch (e) {  
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشل: $e')));  
+} finally {  
+  setState(() => _uploading = false);  
+}
+
+}
+
+@override
+Widget build(BuildContext context) {
+return Scaffold(
+appBar: AppBar(title: Text('رفع فيديو')),
+body: SingleChildScrollView(
+padding: EdgeInsets.all(24),
+child: Column(
+children: [
+if (_video != null)
+Container(
+height: 200,
+child: Center(child: Text('✔ تم اختيار الفيديو (45 ثانية)'))),
+SizedBox(height: 12),
+ElevatedButton.icon(
+onPressed: _pick,
+icon: Icon(Icons.video_library),
+label: Text('اختر فيديو (ماكس 45 ثانية)')),
+SizedBox(height: 20),
+TextField(
+controller: _caption,
+decoration: InputDecoration(hintText: 'وصف الفيديو...'),
+maxLines: 3),
+SizedBox(height: 12),
+CheckboxListTile(
+title: Text('إضافة إلى تحدّي الأسبوع'),
+value: _isChallenge,
+onChanged: (v) => setState(() => _isChallenge = v ?? false)),
+SizedBox(height: 20),
+ElevatedButton(
+onPressed: _uploading ? null : _upload,
+child: _uploading
+? CircularProgressIndicator(color: Colors.white)
+: Text('نشر')),
+],
+),
+),
+);
+}
+}dependencies:
+flutter:
+sdk: flutter
+firebase_core: ^2.15.1
+firebase_auth: ^4.11.1
+cloud_firestore: ^4.9.1
+firebase_storage: ^11.7.0
+video_player: ^2.7.2
+image_picker: ^1.0.4
+flutter_ffmpeg: ^0.4.2
